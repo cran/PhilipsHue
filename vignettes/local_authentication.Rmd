@@ -1,0 +1,151 @@
+---
+title: "Local authentication"
+date: "May 1, 2022"
+output:
+  rmarkdown::html_vignette:
+    keep_md: true
+vignette: >
+  %\VignetteIndexEntry{Local authentication}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+
+
+
+
+# Introduction
+
+In order to control your Hue devices, you must first authenticate to your Hue
+bridge. The PhilipsHue package only supports local authentication which means
+that it can only be used when you are on the same network as the Hue bridge
+you're trying to control. For local authentication to work, the PhilipsHue
+packages requires the following environment variables to be set:
+
+  - `PHILIPS_HUE_BRIDGE_IP`
+  - `PHILIPS_HUE_BRIDGE_USERNAME` (In V2 of the Hue API, "username" is renamed
+    to "application key" to emphasize that it is a key that should be kept
+    secret.)
+
+See the Philips Hue
+[Getting Started](https://developers.meethue.com/develop/get-started-2/)
+guide to learn more about authentication.
+
+
+
+# Local authentication
+
+Starting out, you can see that we have not set the necessary local
+authentication environment variables.
+
+
+```r
+Sys.getenv("PHILIPS_HUE_BRIDGE_IP")
+#> [1] ""
+Sys.getenv("PHILIPS_HUE_BRIDGE_USERNAME")
+#> [1] ""
+```
+
+Let's begin by identifying the IP address of our local bridge. This can be found
+in the settings of the Hue app, or we can use a lookup service as shown here.
+(IP address masked for privacy.)
+
+
+```r
+bridge_ip <- httr::GET("https://discovery.meethue.com") |>
+    httr::content() |>
+    purrr::map_chr("internalipaddress")
+
+gsub("\\d", "0", bridge_ip)
+#> [1] "000.000.0.000"
+```
+
+Now that we've found our bridge IP address, we can set the value as an
+environment variable.
+
+
+```r
+Sys.setenv(PHILIPS_HUE_BRIDGE_IP = bridge_ip)
+```
+
+Next we need to create a new user -- there's a function for that!
+
+
+```r
+create_user("test_user")
+#> Error in create_user("test_user"): API request returned errors
+#> - error:
+#>     type: 101
+#>     address: ''
+#>     description: link button not pressed
+```
+
+Oops! As you can see, in order to create a new user we need to press the button
+on the Hue bridge first. Let's press the button and try again.
+
+
+
+
+```r
+local_user <- create_user("test_user")
+
+purrr::map_lgl(local_user, grepl, pattern = "^.{2,}$")
+#>  username clientkey 
+#>      TRUE      TRUE
+```
+
+Success! Now we can set the username environment variable, and we should have
+local access to the bridge.
+
+
+```r
+Sys.setenv(PHILIPS_HUE_BRIDGE_USERNAME = local_user$username)
+```
+
+With these variables set, PhilipsHue functions should take care of
+authentication automatically. Here's a minimal example.
+
+
+```r
+get_lights() |> length()
+#> [1] 35
+get_light("1")$state
+#> $on
+#> [1] FALSE
+#> 
+#> $bri
+#> [1] 1
+#> 
+#> $ct
+#> [1] 316
+#> 
+#> $alert
+#> [1] "select"
+#> 
+#> $colormode
+#> [1] "ct"
+#> 
+#> $mode
+#> [1] "homeautomation"
+#> 
+#> $reachable
+#> [1] TRUE
+
+get_sensors() |> length()
+#> [1] 6
+get_sensor("1")$name
+#> [1] "Daylight"
+```
+
+
+
+# `.Renviron` file
+
+You can use an `.Renviron` file to set these environment variables automatically
+when you start R. Here, we'll write these new credentials to a file that is used
+during functional testing.
+
+
+```r
+write_auth("tests/testthat/.Renviron", append = FALSE)
+```
